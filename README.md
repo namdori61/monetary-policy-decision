@@ -51,7 +51,7 @@ Predict monetary policy voting result with monetary policy decision text using P
 ### Major model
 - 금통위 통화정책 회의에 의해 의사결정된 금리 방향 예측 모델 학습 (해당 학습을 통해서 의결문 텍스트에 대한 KbAlbert 모델 사전학습 기능)
 
-`!python monetary-policy-decision/train.py \
+`python monetary-policy-decision/train.py \
 --train_path monetary-policy-decision/splitted_dataset/train.jsonl \
 --dev_path monetary-policy-decision/splitted_dataset/dev.jsonl \
 --test_path monetary-policy-decision/splitted_dataset/test.jsonl \
@@ -71,7 +71,7 @@ Predict monetary policy voting result with monetary policy decision text using P
 ### Minor model (target)
 - 금통위 통화정책 회의에서 나온 소수의견 예측 모델 학습 (Major model의 KbAlbert layer를 사전학습 모델로 이용)
 
-`!python monetary-policy-decision/train.py \
+`python monetary-policy-decision/train.py \
 --train_path monetary-policy-decision/splitted_dataset/train.jsonl \
 --dev_path monetary-policy-decision/splitted_dataset/dev.jsonl \
 --test_path monetary-policy-decision/splitted_dataset/test.jsonl \
