@@ -1,0 +1,11 @@
+# env
+.DS_Store
+.idea/
+__pycache__/
+
+# raw data
+dataset/*.txt
+dataset/*.hwp
+
+# pretrained
+pretrained/
