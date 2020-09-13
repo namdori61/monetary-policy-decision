@@ -12,8 +12,12 @@ from models import KbAlbertClassificationModel
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string('input_path', default=None,
-                    help='Path to the training dataset')
+flags.DEFINE_string('train_path', default=None,
+                    help='Path to the train dataset')
+flags.DEFINE_string('dev_path', default=None,
+                    help='Path to the dev dataset')
+flags.DEFINE_string('test_path', default=None,
+                    help='Path to the test dataset')
 flags.DEFINE_string('label_type', default=None,
                     help='Label type to train')
 flags.DEFINE_string('tokenizer_config_path', default=None,
@@ -50,7 +54,9 @@ def main(argv):
     tokenizer = KbAlbertCharTokenizer(vocab_file=FLAGS.vocab_path,
                                       pretrained_init_configuration=tokenizer_config)
     if FLAGS.label_type == 'major':
-        model = KbAlbertClassificationModel(input_path=FLAGS.input_path,
+        model = KbAlbertClassificationModel(train_path=FLAGS.train_path,
+                                            dev_path=FLAGS.dev_path,
+                                            test_path=FLAGS.test_path,
                                             model_path=FLAGS.model_path,
                                             config_path=FLAGS.model_config_path,
                                             tokenizer=tokenizer,
@@ -61,7 +67,9 @@ def main(argv):
                                             weight_decay=FLAGS.weight_decay,
                                             warm_up=FLAGS.warm_up)
     elif FLAGS.label_type == 'minor':
-        model = KbAlbertClassificationModel(input_path=FLAGS.input_path,
+        model = KbAlbertClassificationModel(train_path=FLAGS.train_path,
+                                            dev_path=FLAGS.dev_path,
+                                            test_path=FLAGS.test_path,
                                             model_path=FLAGS.model_path,
                                             config_path=FLAGS.model_config_path,
                                             tokenizer=tokenizer,
@@ -77,7 +85,7 @@ def main(argv):
     seed_everything(42)
 
     checkpoint_callback = ModelCheckpoint(
-        filepath=FLAGS.save_dir,
+        filepath=FLAGS.save_dir + '/' + FLAGS.version,
         save_top_k=1,
         monitor='val_loss',
         mode='min'
@@ -104,6 +112,7 @@ def main(argv):
                           distributed_backend='ddp',
                           log_gpu_memory=True,
                           checkpoint_callback=checkpoint_callback,
+                          check_val_every_n_epoch=1,
                           early_stop_callback=early_stop,
                           max_epochs=FLAGS.max_epochs,
                           logger=logger,
@@ -115,6 +124,7 @@ def main(argv):
                           gpus=FLAGS.cuda_device,
                           log_gpu_memory=True,
                           checkpoint_callback=checkpoint_callback,
+                          check_val_every_n_epoch=1,
                           early_stop_callback=early_stop,
                           max_epochs=FLAGS.max_epochs,
                           logger=logger,
@@ -124,6 +134,7 @@ def main(argv):
     else:
         trainer = Trainer(deterministic=True,
                           checkpoint_callback=checkpoint_callback,
+                          check_val_every_n_epoch=1,
                           early_stop_callback=early_stop,
                           max_epochs=FLAGS.max_epochs,
                           logger=logger,
@@ -131,9 +142,15 @@ def main(argv):
         logging.info('No GPU available, using the CPU instead.')
     trainer.fit(model)
 
+    if FLAGS.label_type == 'major':
+        model.text_embedding.save_pretrained(FLAGS.save_dir)
+
+    if FLAGS.test_path:
+        trainer.test()
+
 
 if __name__ == '__main__':
     flags.mark_flags_as_required([
-        'input_path', 'label_type', 'vocab_path', 'model_path', 'model_config_path', 'save_dir', 'version'
+        'train_path', 'dev_path', 'label_type', 'vocab_path', 'model_path', 'model_config_path', 'save_dir', 'version'
     ])
     app.run(main)

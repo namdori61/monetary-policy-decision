@@ -1,13 +1,14 @@
-from typing import Tuple, Dict, Union, List, Optional, Sequence
+from typing import Any, Tuple, Dict, Union, List, Optional, Sequence
 import json
 
 import torch
 from torch import nn, Tensor
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader, RandomSampler, DistributedSampler, SequentialSampler, random_split
+from torch.utils.data import DataLoader, RandomSampler, DistributedSampler, SequentialSampler
 from torch.nn import CrossEntropyLoss
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning.metrics.functional import accuracy, precision, recall
+from pytorch_lightning import TrainResult, EvalResult
 from transformers import AlbertTokenizer, AlbertConfig, AlbertModel, AdamW
 
 from dataset_readers import KbAlbertDataset
@@ -15,7 +16,9 @@ from dataset_readers import KbAlbertDataset
 
 class KbAlbertClassificationModel(LightningModule):
     def __init__(self,
-                 input_path: str = None,
+                 train_path: str = None,
+                 dev_path: str = None,
+                 test_path: str = None,
                  model_path: str = None,
                  config_path: str = None,
                  tokenizer: AlbertTokenizer = None,
@@ -38,7 +41,9 @@ class KbAlbertClassificationModel(LightningModule):
 
         self.save_hyperparameters()
 
-        self.dataset = KbAlbertDataset(input_path, tokenizer)
+        self.train_dataset = KbAlbertDataset(train_path, tokenizer)
+        self.val_dataset = KbAlbertDataset(dev_path, tokenizer)
+        self.test_dataset = KbAlbertDataset(test_path, tokenizer)
 
         f = open(config_path, encoding='UTF-8')
         config_dict = json.loads(f.read())
@@ -58,12 +63,6 @@ class KbAlbertClassificationModel(LightningModule):
         logits = self.classifier(text_embedded[1])
 
         return logits
-
-    def setup(self,
-              step):
-        train_size = int(len(self.dataset) * 0.8)
-        val_size = len(self.dataset) - train_size
-        self.train_dataset, self.val_dataset = random_split(self.dataset, [train_size, val_size])
 
     def train_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         if self.cuda_device > 0:
@@ -85,6 +84,15 @@ class KbAlbertClassificationModel(LightningModule):
                                     batch_size=self.batch_size,
                                     num_workers=self.num_workers)
         return val_dataloader
+
+    def test_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
+        sampler = SequentialSampler(self.test_dataset)
+
+        test_dataloader = DataLoader(self.test_dataset,
+                                    sampler=sampler,
+                                    batch_size=self.batch_size,
+                                    num_workers=self.num_workers)
+        return test_dataloader
 
     def configure_optimizers(self) -> Optional[
         Union[
@@ -116,7 +124,9 @@ class KbAlbertClassificationModel(LightningModule):
         optimizer.step()
         optimizer.zero_grad()
 
-    def training_step(self, batch, batch_idx) -> Union[
+    def training_step(self,
+                      batch: Dict = None,
+                      batch_idx: int = None) -> Union[
         int, Dict[
             str, Union[
                 Tensor, Dict[str, Tensor]
@@ -133,14 +143,19 @@ class KbAlbertClassificationModel(LightningModule):
 
         nn.utils.clip_grad_norm_(self.parameters(), 1.0)
 
-        preds = torch.argmax(logits, dim=1)
-        acc = accuracy(preds, labels.view(-1), num_classes=self.num_classes)
+        return {'loss': loss}
 
-        train_logs = {'train_loss': loss, 'train_accuracy': acc}
+    def training_epoch_end(
+            self, outputs: Union[TrainResult, List[TrainResult]]
+    ) -> Dict[str, Dict[str, Tensor]]:
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
 
-        return {'loss': loss, 'log': train_logs}
+        logs = {'avg_train_loss': avg_loss}
+        return {'train_loss': avg_loss, 'log': logs}
 
-    def validation_step(self, batch, batch_idx) -> Dict[str, Tensor]:
+    def validation_step(self,
+                        batch: Dict = None,
+                        batch_idx: int = None) -> Dict[str, Tensor]:
         logits = self.forward(batch)
         if self.num_classes == 3:
             labels = batch['label_major']
@@ -173,3 +188,37 @@ class KbAlbertClassificationModel(LightningModule):
                 'avg_val_pr': avg_pr,
                 'avg_val_rc': avg_rc}
         return {'val_loss': avg_loss, 'log': logs}
+
+    def test_step(self,
+                  batch: Dict = None,
+                  batch_idx: int = None) -> Dict[str, Tensor]:
+        logits = self.forward(batch)
+        if self.num_classes == 3:
+            labels = batch['label_major']
+        else:
+            labels = batch['label_minor']
+        loss_fct = CrossEntropyLoss()
+        loss = loss_fct(logits.view(-1, self.num_classes), labels.view(-1))
+
+        preds = torch.argmax(logits, dim=1)
+        test_acc = accuracy(preds, labels.view(-1), num_classes=self.num_classes)
+        test_pr = precision(preds, labels.view(-1), num_classes=self.num_classes)
+        test_rc = recall(preds, labels.view(-1), num_classes=self.num_classes)
+
+        return {'test_loss': loss,
+                'test_acc': test_acc,
+                'test_pr': test_pr,
+                'test_rc': test_rc}
+
+    def test_epoch_end(
+            self, outputs: Union[EvalResult, List[EvalResult]]
+    ) -> Dict[str, Union[Dict[str, Any], Any]]:
+        avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
+        avg_acc = torch.stack([x['test_acc'] for x in outputs]).mean()
+        avg_pr = torch.stack([x['test_pr'] for x in outputs]).mean()
+        avg_rc = torch.stack([x['test_rc'] for x in outputs]).mean()
+        logs = {'avg_test_loss': avg_loss,
+                'avg_test_acc': avg_acc,
+                'avg_test_pr': avg_pr,
+                'avg_test_rc': avg_rc}
+        return {'test_loss': avg_loss, 'log': logs}
