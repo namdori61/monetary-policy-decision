@@ -13,6 +13,8 @@ flags.DEFINE_string('input_path', default=None,
                     help='Path to the input data')
 flags.DEFINE_string('save_dir', default=None,
                     help='Directory to save the splits')
+flags.DEFINE_bool('random', default=False,
+                  help='Split with random or not')
 flags.DEFINE_float('ratio_dev', default=0.1,
                      help='The ratio of the development set')
 flags.DEFINE_float('ratio_test', default=0.1,
@@ -36,7 +38,8 @@ def main(argv):
     logging.info(f'# test samples: {num_test_data}')
 
     indices = list(range(num_data))
-    random.shuffle(indices)
+    if FLAGS.random:
+        random.shuffle(indices)
 
     train_indices = set(indices[:num_train_data])
     dev_indices = set(indices[num_train_data:-num_test_data])
