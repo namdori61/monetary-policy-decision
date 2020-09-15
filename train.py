@@ -151,7 +151,8 @@ def main(argv):
     @telegram_sender(token=parser.get('telegram', 'token'),
                      chat_id=parser.get('telegram', 'chat_id'))
     def train_notify(model, trainer):
-        trainer.fit(model)
+        results = trainer.fit(model)
+        return results
 
     train_notify(model, trainer)
 
@@ -162,7 +163,8 @@ def main(argv):
         @telegram_sender(token=parser.get('telegram', 'token'),
                          chat_id=parser.get('telegram', 'chat_id'))
         def test_notify(trainer):
-            trainer.test()
+            results = trainer.test()
+            return results
 
         test_notify(trainer)
 
