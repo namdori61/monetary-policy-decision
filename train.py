@@ -1,4 +1,5 @@
 import json
+from configparser import ConfigParser
 
 from absl import app, flags, logging
 import torch
@@ -9,6 +10,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from preprocess import KbAlbertCharTokenizer
 from models import KbAlbertClassificationModel
 
+from knockknock import telegram_sender
 
 FLAGS = flags.FLAGS
 
@@ -46,6 +48,8 @@ flags.DEFINE_float('weight_decay', default=0.1,
                    help='If given, uses this weight decay in training')
 flags.DEFINE_integer('warm_up', default=500,
                      help='If given, uses this warm up in training')
+flags.DEFINE_string('config_path', default=None,
+                    help='Path to the config file')
 
 
 def main(argv):
@@ -140,17 +144,32 @@ def main(argv):
                           logger=logger,
                           callbacks=[lr_logger])
         logging.info('No GPU available, using the CPU instead.')
-    trainer.fit(model)
+
+    parser = ConfigParser()
+    parser.read(FLAGS.config_path)
+
+    @telegram_sender(token=parser.get('telegram', 'token'),
+                     chat_id=parser.get('telegram', 'chat_id'))
+    def train_notify(model, trainer):
+        trainer.fit(model)
+
+    train_notify(model, trainer)
 
     if FLAGS.label_type == 'major':
         model.text_embedding.save_pretrained(FLAGS.save_dir)
 
     if FLAGS.test_path:
-        trainer.test()
+        @telegram_sender(token=parser.get('telegram', 'token'),
+                         chat_id=parser.get('telegram', 'chat_id'))
+        def test_notify(trainer):
+            trainer.test()
+
+        test_notify(trainer)
 
 
 if __name__ == '__main__':
     flags.mark_flags_as_required([
-        'train_path', 'dev_path', 'label_type', 'vocab_path', 'model_path', 'model_config_path', 'save_dir', 'version'
+        'train_path', 'dev_path', 'label_type', 'vocab_path', 'model_path',
+        'model_config_path', 'save_dir', 'version', 'config_path'
     ])
     app.run(main)

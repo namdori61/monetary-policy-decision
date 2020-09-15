@@ -3,6 +3,9 @@
 .idea/
 __pycache__/
 
+# config
+config.ini
+
 # raw data
 dataset/*.txt
 dataset/*.hwp
